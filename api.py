@@ -1,67 +1,60 @@
-from flask import Flask
-from flask.helpers import make_response
-from flask import request
-from flask.json import jsonify
-import jwt
+from datetime import datetime, timedelta
+from flask import Flask, request, redirect
+from flask.helpers import make_response, url_for
 from flask_sqlalchemy import SQLAlchemy
-from functools import wraps
-import time
-import datetime
-from datetime import date,timedelta
-
+import jwt
 
 app = Flask(__name__)
-
-app.config['SECRET_KEY'] = 'thisisthesecretkey'
-
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:sergazin@localhost:5432/JWT'
+app.config['SQLALCHEMY_DATABASE_URI'] = ''
+app.config['SECRET_KEY'] = 'flasksecretkey'
 db = SQLAlchemy(app)
 
+token = ''
 
-class Users(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    login = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(120), unique=True, nullable=False)
-    token = db.Column(db.String(120), unique=True, nullable=False)
-    def __repr__(self):
-        return '<Users %r>' % self.login
+class UserTable(db.Model):
+    tablename = 'userr'
+    id = db.Column('id', db.Integer, primary_key = True)
+    login = db.Column('login', db.Unicode)
+    password = db.Column('password', db.Integer)
+    token = db.Column('login', db.Unicode)
 
-# db.create_all()
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.args.get('token')
-
-        if not token:
-            return jsonify({'message' : 'Token is missing!'}), 403
-
-        try: 
-            data = jwt.decode(token, app.config['SECRET_KEY'])
-        except:
-            return jsonify({'message' : 'Token is invalid!'}), 403
-
-        return f(*args, **kwargs)
-
-    return decorated
-
-
-@app.route('/protected')
-@token_required
-def protected():
-    return jsonify({'message' : 'This is only available for people with valid tokens.'})
+    def init(self, id, login, password, token):
+        self.id = id
+        self.login = login
+        self.password = password
+        self.token = token
 
 @app.route('/login')
 def login():
+
     auth = request.authorization
 
-    if auth and (Users.query.filter_by(login=auth.username).first()!=None):
-        if (Users.query.filter_by(login=auth.username).first().password == auth.password):
-            token = jwt.encode({'user' : auth.username, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(seconds=60)}, app.config['SECRET_KEY'])
+    select_this = UserTable.query.filter_by(login=auth).first()
 
-        return jsonify({'token' : token})
+    if auth and auth.password == select_this.password:
+        
+        return redirect(url_for('getToken', auth=auth))
+    
+    return make_response('Could not find a user with login: ' + auth, 401, {'WWW-Authenticate': 'Basic realm="Login required'})
 
-    return make_response('Could not verify!', 401, {'WWW-Authenticate' : 'Basic realm="Login Required"'})
+def token_required(var):
+    def wrapper(func):
+        if var != None:
+            return func
+        else:
+            return '<h1>Hello, could not verify the token</h1>'
+    return wrapper
+    
+@app.route('/getToken')
+def getToken():
+    auth = request.args.get('auth')
+    token = jwt.encode({'user':auth.username, 'exp':datetime.utcnow() + timedelta(minutes=5)}, app.config['SECRET_KEY'])
+    return redirect(url_for('somethingElse', var=token))
 
-if __name__ == '__main__':
+@app.route('/protected')
+@token_required
+def somethingElse():
+    return '<h1>Hello world</h1>'
+
+if __name__ == '__main':
     app.run(debug=True)
